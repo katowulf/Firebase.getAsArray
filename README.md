@@ -1,4 +1,3 @@
-
 # Firebase.getAsArray
 
 A simple library to demonstrate how arrays can be synchronized to a real-time, distributed system like Firebase.
