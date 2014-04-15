@@ -18,10 +18,10 @@
       return this.list;
     },
 
-    add: function(data, optionalRecordId) {
-      var key = arguments.length > 1? optionalRecordId : this.ref.push().name();
+    add: function(data) {
+      var key = this.ref.push().name();
       var ref = this.ref.child(key);
-      ref.set(data, this._handleErrors.bind(this, key));
+      if( arguments.length > 0 ) { ref.set(data, this._handleErrors.bind(this, key)); }
       return ref;
     },
 

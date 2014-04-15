@@ -214,19 +214,7 @@ describe('Firebase.getAsArray', function() {
       expect(list[0]).eqls({foo: 'bar'});
     });
 
-    it('should accept a custom id', function() {
-      var fb = new Firebase('Empty://', {});
-      var list = getAsArray(fb);
-      fb.flush();
-
-      expect(list.length).equals(0);
-      list.$add({foo: 'bar'}, 'foobar');
-      fb.flush();
-
-      expect(list.$indexOf('foobar')).equals(0);
-    });
-
-    it('should create an id if one is not provided', function() {
+    it('should call Firebase.push() to create a unique id', function() {
       var fb = new Firebase('Empty://', {});
       var list = getAsArray(fb);
       fb.flush();
