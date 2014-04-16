@@ -9,9 +9,9 @@ This library demonstrates the following best practices for using arrays with col
  - synchronize changes from the server directly into our array
  - push local changes to the server and letting them trickle back
 
-In other words, our array is essentialy one-directional. The server sends changes in, we read them out, we push the changes back to the server.
+In other words, our array is essentialy one-directional. Changes come from the server into the array, we read them out, we push our local edits to the server, they trickle back into the array.
 
-Read more about synchronized arrays and this template lib on the [Firebase Blog](https://www.firebase.com/blog/).
+Read more about synchronized arrays and this lib on the [Firebase Blog](https://www.firebase.com/blog/).
 
 ## Installation
 
