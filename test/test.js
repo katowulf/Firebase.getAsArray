@@ -27,8 +27,8 @@ describe('Firebase.getAsArray', function() {
       fb.flush();
       expect(list).to.have.length(_.keys(fb.getData()).length);
       var i = 0;
-      _.each(fb.getData(), function(v) {
-        expect(list[i++]).to.eql(v);
+      _.each(fb.getData(), function(v, k) {
+        expect(list.$rawData(k)).to.eql(v);
       });
     });
 
@@ -60,7 +60,7 @@ describe('Firebase.getAsArray', function() {
       fb.flush();
 
       expect(list).has.length(oldLength);
-      expect(list[1]).eqls(data);
+      expect(list.$rawData('b')).eqls(data);
     });
 
     it('should handle child_moved from server', function() {
@@ -72,7 +72,7 @@ describe('Firebase.getAsArray', function() {
       fb.flush();
 
       expect(list).has.length(oldLength);
-      expect(list[oldLength-1]).eqls(fb.getData().a);
+      expect(list[oldLength-1].$id).eqls('a');
     });
 
     it('should trigger callback for add', function() {
@@ -137,6 +137,32 @@ describe('Firebase.getAsArray', function() {
     });
   });
 
+  describe('$rawData', function() {
+    it('should return the same data in Firebase for existing key', function() {
+      var list = getAsArray(fb);
+      fb.flush();
+      expect(list.$rawData('b')).eqls(fb.getData().b);
+    });
+
+    it('should return null for non-existing key', function() {
+      var list = getAsArray(fb);
+      fb.flush();
+      expect(list.$rawData('notavalidkey')).equals(null);
+    })
+  });
+
+  describe('$off', function() {
+    it('should stop listening to events', function() {
+      var list = getAsArray(fb);
+      fb.flush();
+      var oldLength = list.length;
+      list.$off();
+      fb.push({hello: 'world'});
+      fb.flush();
+      expect(list.length).equals(oldLength);
+    })
+  });
+
   describe('$indexOf', function() {
     it('should return correct index for existing records', function() {
       var list = getAsArray(fb);
@@ -155,25 +181,6 @@ describe('Firebase.getAsArray', function() {
 
       expect(list.length).is.gt(0);
       expect(list.$indexOf('notakey')).equals(-1);
-    });
-  });
-
-  describe('$keyFor', function() {
-    it('should return correct indices for each key', function() {
-      var list = getAsArray(fb);
-      fb.flush();
-
-      var keys = _.keys(fb.getData());
-      expect(keys.length).above(0);
-      _.each(keys, function(k,i) {
-        expect(list.$keyFor(i)).equals(k);
-      });
-    });
-
-    it('should return undefined for a key that does not exist', function() {
-      var list = getAsArray(fb);
-      fb.flush();
-      expect(list.$keyFor(99999)).equals(undefined);
     });
   });
 
@@ -199,7 +206,7 @@ describe('Firebase.getAsArray', function() {
       list.$add(true);
       fb.flush();
 
-      expect(list[0]).equals(true);
+      expect(list[0]['.value']).equals(true);
     });
 
     it('should add objects', function() {
@@ -208,10 +215,10 @@ describe('Firebase.getAsArray', function() {
       fb.flush();
 
       expect(list.length).equals(0);
-      list.$add({foo: 'bar'});
+      var id = list.$add({foo: 'bar'}).name();
       fb.flush();
 
-      expect(list[0]).eqls({foo: 'bar'});
+      expect(list[0]).eqls({$id: id, foo: 'bar'});
     });
 
     it('should call Firebase.push() to create a unique id', function() {
@@ -233,11 +240,11 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
       fb.flush();
 
-      expect(list[0]).equals('bar');
+      expect(list[0]['.value']).equals('bar');
       list.$set('foo', 'baz');
       fb.flush();
 
-      expect(list[0]).equals('baz');
+      expect(list[0]['.value']).equals('baz');
     });
 
     it('should update existing object', function() {
@@ -300,7 +307,7 @@ describe('Firebase.getAsArray', function() {
       list.$update('foo', {hello: 'world'});
       fb.flush();
 
-      expect(list[0]).eqls({hello: 'world'});
+      expect(list[0]).eqls({$id: 'foo', hello: 'world'});
     });
 
     it('should update object', function() {

@@ -1,4 +1,4 @@
-/*! Firebase.getAsArray - v0.0.1 - 2014-04-14
+/*! Firebase.getAsArray - v0.1.0 - 2014-04-21
 * Copyright (c) 2014 Kato
 * MIT LICENSE */
 
@@ -9,11 +9,11 @@
   };
 
   function ReadOnlySynchronizedArray(ref, eventCallback) {
-    this.ids = [];
     this.list = [];
+    this.subs = []; // used to track event listeners for dispose()
     this.ref = ref;
     this.eventCallback = eventCallback;
-    this._initList();
+    this._wrapList();
     this._initListeners();
   }
 
@@ -25,16 +25,16 @@
     add: function(data) {
       var key = this.ref.push().name();
       var ref = this.ref.child(key);
-      if( arguments.length > 0 ) { ref.set(data, this._handleErrors.bind(this, key)); }
+      if( arguments.length > 0 ) { ref.set(parseForJson(data), this._handleErrors.bind(this, key)); }
       return ref;
     },
 
     set: function(key, newValue) {
-      this.ref.child(key).set(newValue, this._handleErrors.bind(this, key));
+      this.ref.child(key).set(parseForJson(newValue), this._handleErrors.bind(this, key));
     },
 
     update: function(key, newValue) {
-      this.ref.child(key).update(newValue, this._handleErrors.bind(this, key));
+      this.ref.child(key).update(parseForJson(newValue), this._handleErrors.bind(this, key));
     },
 
     setPriority: function(key, newPriority) {
@@ -46,23 +46,48 @@
     },
 
     posByKey: function(key) {
-      return this.ids.indexOf(key);
+      return findKeyPos(this.list, key);
     },
 
-    keyForPos: function(pos) {
-      return this.ids[pos];
+    placeRecord: function(key, prevId) {
+      if( prevId === null ) {
+        return 0;
+      }
+      else {
+        var i = this.posByKey(prevId);
+        if( i === -1 ) {
+          return this.list.length;
+        }
+        else {
+          return i+1;
+        }
+      }
+    },
+
+    getRecord: function(key) {
+      var i = this.posByKey(key);
+      if( i === -1 ) return null;
+      return this.list[i];
+    },
+
+    dispose: function() {
+      var ref = this.ref;
+      this.subs.forEach(function(s) {
+        ref.off(s[0], s[1]);
+      });
+      this.subs = [];
     },
 
     _serverAdd: function(snap, prevId) {
-      this._moveTo(snap.name(), snap.val(), prevId);
-      this._handleEvent('child_added', snap.name(), snap.val());
+      var data = parseVal(snap.name(), snap.val());
+      this._moveTo(snap.name(), data, prevId);
+      this._handleEvent('child_added', snap.name(), data);
     },
 
     _serverRemove: function(snap) {
       var pos = this.posByKey(snap.name());
       if( pos !== -1 ) {
         this.list.splice(pos, 1);
-        this.ids.splice(pos, 1);
         this._handleEvent('child_removed', snap.name(), this.list[pos]);
       }
     },
@@ -70,7 +95,7 @@
     _serverChange: function(snap) {
       var pos = this.posByKey(snap.name());
       if( pos !== -1 ) {
-        this.list[pos] = applyToBase(this.list[pos], snap.val());
+        this.list[pos] = applyToBase(this.list[pos], parseVal(snap.name(), snap.val()));
         this._handleEvent('child_changed', snap.name(), this.list[pos]);
       }
     },
@@ -81,28 +106,14 @@
       if( oldPos !== -1 ) {
         var data = this.list[oldPos];
         this.list.splice(oldPos, 1);
-        this.ids.splice(oldPos, 1);
         this._moveTo(id, data, prevId);
         this._handleEvent('child_moved', snap.name(), data);
       }
     },
 
     _moveTo: function(id, data, prevId) {
-      if( prevId === null ) {
-        this.ids.unshift(id);
-        this.list.unshift(data);
-      }
-      else {
-        var pos = this.posByKey(id);
-        if( pos === -1 ) {
-          pos = this.list.length;
-        }
-        else {
-          pos++;
-        }
-        this.ids.splice(pos, 0, id);
-        this.list.splice(pos, 0, data);
-      }
+      var pos = this.placeRecord(id, prevId);
+      this.list.splice(pos, 0, data);
     },
 
     _handleErrors: function(key, err) {
@@ -117,21 +128,26 @@
       this.eventCallback && this.eventCallback(eventType, recordId, data);
     },
 
-    _initList: function() {
-      this.list.$keyFor = this.keyForPos.bind(this);
+    _wrapList: function() {
       this.list.$indexOf = this.posByKey.bind(this);
       this.list.$add = this.add.bind(this);
       this.list.$remove = this.remove.bind(this);
       this.list.$set = this.set.bind(this);
       this.list.$update = this.update.bind(this);
       this.list.$move = this.setPriority.bind(this);
+      this.list.$rawData = function(key) { return parseForJson(this.getRecord(key)) }.bind(this);
+      this.list.$off = this.dispose.bind(this);
     },
 
     _initListeners: function() {
-      this.ref.on('child_added', this._serverAdd.bind(this));
-      this.ref.on('child_removed', this._serverRemove.bind(this));
-      this.ref.on('child_changed', this._serverChange.bind(this));
-      this.ref.on('child_moved', this._serverMove.bind(this));
+      this._monit('child_added', this._serverAdd);
+      this._monit('child_removed', this._serverRemove);
+      this._monit('child_changed', this._serverChange);
+      this._monit('child_moved', this._serverMove);
+    },
+
+    _monit: function(event, method) {
+      this.subs.push([event, this.ref.on(event, method.bind(this))]);
     }
   };
 
@@ -141,7 +157,7 @@
     if( isObject(base) && isObject(data) ) {
       var key;
       for(key in base) {
-        if( base.hasOwnProperty(key) && !data.hasOwnProperty(key) ) {
+        if( key !== '$id' && base.hasOwnProperty(key) && !data.hasOwnProperty(key) ) {
           delete base[key];
         }
       }
@@ -159,5 +175,35 @@
 
   function isObject(x) {
     return typeof(x) === 'object' && x !== null;
+  }
+
+  function findKeyPos(list, key) {
+    for(var i = 0, len = list.length; i < len; i++) {
+      if( list[i].$id === key ) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function parseForJson(data) {
+    if( data && typeof(data) === 'object' ) {
+      delete data['$id'];
+      if( data.hasOwnProperty('.value') ) {
+        data = data['.value'];
+      }
+    }
+    if( data === undefined ) {
+      data = null;
+    }
+    return data;
+  }
+
+  function parseVal(id, data) {
+    if( typeof(data) !== 'object' || !data ) {
+      data = { '.value': data };
+    }
+    data['$id'] = id;
+    return data;
   }
 })(typeof(window)==='undefined'? exports : window.Firebase);

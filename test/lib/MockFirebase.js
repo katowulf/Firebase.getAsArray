@@ -1,23 +1,15 @@
 /**
  * MockFirebase: A Firebase stub/spy library for writing unit tests
  * https://github.com/katowulf/mockfirebase
- * @version 0.0.1-modified
+ * @version 0.0.3
  */
 (function(exports) {
   var DEBUG = false;
   var PUSH_COUNTER = 0;
-
-  // some hoop jumping for node require() vs browser usage
-  var _, sinon;
-  exports.Firebase = MockFirebase; //todo use MockFirebase.stub() instead of forcing overwrite of window.Firebase
-  if( typeof module !== "undefined" && module.exports && typeof(require) === 'function' ) {
-    _ = require('lodash');
-    sinon = require('sinon');
-  }
-  else {
-    _ = exports._;
-    sinon = exports.sinon;
-  }
+  var _ = requireLib('lodash', '_');
+  var sinon = requireLib('sinon');
+  var _Firebase = exports.Firebase;
+  var _FirebaseSimpleLogin = exports.FirebaseSimpleLogin;
 
   /**
    * A mock that simulates Firebase operations for use in unit tests.
@@ -100,7 +92,6 @@
 
     // stores the operations that have been queued until a flush() event is triggered
     this.ops = [];
-
 
     // turn all our public methods into spies so they can be monitored for calls and return values
     // see jasmine spies: https://github.com/pivotal/jasmine/wiki/Spies
@@ -469,10 +460,285 @@
       return _.isObject(this.data) && _.has(this.data, key)? this.data[key] : null;
     },
 
-    _getPrevChild: function(key) {
-
+    _getPrevChild: function(key, pri) {
+      function keysMatch(c) { return c.name() === key }
+      var recs = this.children;
+      var i = _.findIndex(recs, keysMatch);
+      if( i === -1 ) {
+        recs = this.children.slice();
+        child = {name: function() { return key; }, priority: pri===undefined? null : pri };
+        recs.push(child);
+        recs.sort(childComparator);
+        i = _.findIndex(recs, keysMatch);
+      }
+      return i > 0? i : null;
     }
   };
+
+
+  /*******************************************************************************
+   * SIMPLE LOGIN
+   ******************************************************************************/
+  function MockFirebaseSimpleLogin(ref, callback, resultData) {
+    // allows test units to monitor the callback function to make sure
+    // it is invoked (even if one is not declared)
+    this.callback = sinon.spy(callback||function() {});
+    this.attempts = [];
+    this.failMethod = MockFirebaseSimpleLogin.DEFAULT_FAIL_WHEN;
+    this.ref = ref; // we don't use ref for anything
+    this.autoFlushTime = MockFirebaseSimpleLogin.DEFAULT_AUTO_FLUSH;
+    this.resultData = _.cloneDeep(MockFirebaseSimpleLogin.DEFAULT_RESULT_DATA);
+    resultData && _.assign(this.resultData, resultData);
+  }
+
+  MockFirebaseSimpleLogin.prototype = {
+
+    /*****************************************************
+     * Test Unit Methods
+     *****************************************************/
+
+    /**
+     * When this method is called, any outstanding login()
+     * attempts will be immediately resolved. If this method
+     * is called with an integer value, then the login attempt
+     * will resolve asynchronously after that many milliseconds.
+     *
+     * @param {int|boolean} [milliseconds]
+     * @returns {MockFirebaseSimpleLogin}
+     */
+    flush: function(milliseconds) {
+      var self = this;
+      if(_.isNumber(milliseconds) ) {
+        setTimeout(self.flush.bind(self), milliseconds);
+      }
+      else {
+        var attempts = self.attempts;
+        self.attempts = [];
+        _.each(attempts, function(x) {
+          x[0].apply(self, x.slice(1));
+        });
+      }
+      return self;
+    },
+
+    /**
+     * Automatically queue the flush() event
+     * each time login() is called. If this method
+     * is called with `true`, then the callback
+     * is invoked synchronously.
+     *
+     * If this method is called with an integer,
+     * the callback is triggered asynchronously
+     * after that many milliseconds.
+     *
+     * If this method is called with false, then
+     * autoFlush() is disabled.
+     *
+     * @param {int|boolean} [milliseconds]
+     * @returns {MockFirebaseSimpleLogin}
+     */
+    autoFlush: function(milliseconds) {
+      this.autoFlushTime = milliseconds;
+      if( this.autoFlushTime !== false ) {
+        this.flush(this.autoFlushTime);
+      }
+      return this;
+    },
+
+    /**
+     * `testMethod` is passed the {string}provider, {object}options, {object}user
+     * for each call to login(). If it returns anything other than
+     * null, then that is passed as the error message to the
+     * callback and the login call fails.
+     *
+     * <code>
+     *   // this is a simplified example of the default implementation (MockFirebaseSimpleLogin.DEFAULT_FAIL_WHEN)
+     *   auth.failWhen(function(provider, options, user) {
+     *      if( user.email !== options.email ) {
+     *         return MockFirebaseSimpleLogin.createError('INVALID_USER');
+     *      }
+     *      else if( user.password !== options.password ) {
+     *         return MockFirebaseSimpleLogin.createError('INVALID_PASSWORD');
+     *      }
+     *      else {
+     *         return null;
+     *      }
+     *   });
+     * </code>
+     *
+     * Multiple calls to this method replace the old failWhen criteria.
+     *
+     * @param testMethod
+     * @returns {MockFirebaseSimpleLogin}
+     */
+    failWhen: function(testMethod) {
+      this.failMethod = testMethod;
+      return this;
+    },
+
+    /**
+     * Retrieves a user account from the mock user data on this object
+     *
+     * @param provider
+     * @param options
+     */
+    getUser: function(provider, options) {
+      var data = this.resultData[provider];
+      if( provider === 'password' ) {
+        data = (data||{})[options.email];
+      }
+      return data||{};
+    },
+
+    /*****************************************************
+     * Public API
+     *****************************************************/
+    login: function(provider, options) {
+      var err = this.failMethod(provider, options||{}, this.getUser(provider, options));
+      this._notify(err, err===null? this.resultData[provider]: null);
+    },
+
+    logout: function() {
+      this._notify(null, null);
+    },
+
+    createUser: function(email, password, callback) {
+      callback || (callback = _.noop);
+      this._defer(function() {
+        var user = this.resultData['password'][email] = createEmailUser(email, password);
+        this.callback(null, user);
+      });
+    },
+
+    changePassword: function(email, oldPassword, newPassword, callback) {
+      callback || (callback = _.noop);
+      this._defer(function() {
+        var user = this.getUser('password', {email: email});
+        if( !user ) {
+          callback(MockFirebaseSimpleLogin.createError('INVALID_USER'), false);
+        }
+        else if( oldPassword !== user.password ) {
+          callback(MockFirebaseSimpleLogin.createError('INVALID_PASSWORD'), false);
+        }
+        else {
+          user.password = newPassword;
+          callback(null, true);
+        }
+      });
+    },
+
+    sendPasswordResetEmail: function(email, callback) {
+      callback || (callback = _.noop);
+      this._defer(function() {
+        var user = this.getUser('password', {email: email});
+        if( user ) {
+          callback(null, true);
+        }
+        else {
+          callback(MockFirebaseSimpleLogin.createError('INVALID_USER'), false);
+        }
+      });
+    },
+
+    removeUser: function(email, password, callback) {
+      callback || (callback = _.noop);
+      this._defer(function() {
+        var user = this.getUser('password', {email: email});
+        if( !user ) {
+          callback(MockFirebaseSimpleLogin.createError('INVALID_USER'), false);
+        }
+        else if( user.password !== password ) {
+          callback(MockFirebaseSimpleLogin.createError('INVALID_PASSWORD'), false);
+        }
+        else {
+          delete this.resultData['password'][email];
+          callback(null, true);
+        }
+      });
+    },
+
+    /*****************************************************
+     * Private/internal methods
+     *****************************************************/
+    _notify: function(error, user) {
+      this._defer(this.callback, error, user);
+    },
+
+    _defer: function() {
+      var args = _.toArray(arguments);
+      this.attempts.push(args);
+      if( this.autoFlushTime !== false ) {
+        this.flush(this.autoFlushTime);
+      }
+    }
+  };
+
+  /*** UTIL FUNCTIONS ***/
+  var USER_COUNT = 100;
+  function createEmailUser(email, password) {
+    var id = USER_COUNT++;
+    return {
+      uid: 'password:'+id,
+      id: id,
+      email: email,
+      password: password,
+      provider: 'password',
+      md5_hash: MD5(email),
+      firebaseAuthToken: 'FIREBASE_AUTH_TOKEN' //todo
+    };
+  }
+
+  function createDefaultUser(provider, i) {
+    var id = USER_COUNT++;
+
+    var out = {
+      uid: provider+':'+id,
+      id: id,
+      password: id,
+      provider: provider,
+      firebaseAuthToken: 'FIREBASE_AUTH_TOKEN' //todo
+    };
+    switch(provider) {
+      case 'password':
+        out.email = 'email@firebase.com';
+        out.md5_hash = MD5(out.email);
+        break;
+      case 'persona':
+        out.email = 'email@firebase.com';
+        out.md5_hash = MD5(out.email);
+        break;
+      case 'twitter':
+        out.accessToken = 'ACCESS_TOKEN'; //todo
+        out.accessTokenSecret = 'ACCESS_TOKEN_SECRET'; //todo
+        out.displayName = 'DISPLAY_NAME';
+        out.thirdPartyUserData = {}; //todo
+        out.username = 'USERNAME';
+        break;
+      case 'google':
+        out.accessToken = 'ACCESS_TOKEN'; //todo
+        out.displayName = 'DISPLAY_NAME';
+        out.email = 'email@firebase.com';
+        out.thirdPartyUserData = {}; //todo
+        break;
+      case 'github':
+        out.accessToken = 'ACCESS_TOKEN'; //todo
+        out.displayName = 'DISPLAY_NAME';
+        out.thirdPartyUserData = {}; //todo
+        out.username = 'USERNAME';
+        break;
+      case 'facebook':
+        out.accessToken = 'ACCESS_TOKEN'; //todo
+        out.displayName = 'DISPLAY_NAME';
+        out.thirdPartyUserData = {}; //todo
+        break;
+      case 'anonymous':
+        break;
+      default:
+        throw new Error('Invalid auth provider', provider);
+    }
+
+    return out;
+  }
 
   function ref(path, autoSyncDelay) {
     var ref = new MockFirebase();
@@ -579,10 +845,65 @@
 
   }(exports));
 
+  // MD5 (Message-Digest Algorithm) by WebToolkit
+  //
+
+  var MD5=function(s){function L(k,d){return(k<<d)|(k>>>(32-d))}function K(G,k){var I,d,F,H,x;F=(G&2147483648);H=(k&2147483648);I=(G&1073741824);d=(k&1073741824);x=(G&1073741823)+(k&1073741823);if(I&d){return(x^2147483648^F^H)}if(I|d){if(x&1073741824){return(x^3221225472^F^H)}else{return(x^1073741824^F^H)}}else{return(x^F^H)}}function r(d,F,k){return(d&F)|((~d)&k)}function q(d,F,k){return(d&k)|(F&(~k))}function p(d,F,k){return(d^F^k)}function n(d,F,k){return(F^(d|(~k)))}function u(G,F,aa,Z,k,H,I){G=K(G,K(K(r(F,aa,Z),k),I));return K(L(G,H),F)}function f(G,F,aa,Z,k,H,I){G=K(G,K(K(q(F,aa,Z),k),I));return K(L(G,H),F)}function D(G,F,aa,Z,k,H,I){G=K(G,K(K(p(F,aa,Z),k),I));return K(L(G,H),F)}function t(G,F,aa,Z,k,H,I){G=K(G,K(K(n(F,aa,Z),k),I));return K(L(G,H),F)}function e(G){var Z;var F=G.length;var x=F+8;var k=(x-(x%64))/64;var I=(k+1)*16;var aa=Array(I-1);var d=0;var H=0;while(H<F){Z=(H-(H%4))/4;d=(H%4)*8;aa[Z]=(aa[Z]|(G.charCodeAt(H)<<d));H++}Z=(H-(H%4))/4;d=(H%4)*8;aa[Z]=aa[Z]|(128<<d);aa[I-2]=F<<3;aa[I-1]=F>>>29;return aa}function B(x){var k="",F="",G,d;for(d=0;d<=3;d++){G=(x>>>(d*8))&255;F="0"+G.toString(16);k=k+F.substr(F.length-2,2)}return k}function J(k){k=k.replace(/rn/g,"n");var d="";for(var F=0;F<k.length;F++){var x=k.charCodeAt(F);if(x<128){d+=String.fromCharCode(x)}else{if((x>127)&&(x<2048)){d+=String.fromCharCode((x>>6)|192);d+=String.fromCharCode((x&63)|128)}else{d+=String.fromCharCode((x>>12)|224);d+=String.fromCharCode(((x>>6)&63)|128);d+=String.fromCharCode((x&63)|128)}}}return d}var C=Array();var P,h,E,v,g,Y,X,W,V;var S=7,Q=12,N=17,M=22;var A=5,z=9,y=14,w=20;var o=4,m=11,l=16,j=23;var U=6,T=10,R=15,O=21;s=J(s);C=e(s);Y=1732584193;X=4023233417;W=2562383102;V=271733878;for(P=0;P<C.length;P+=16){h=Y;E=X;v=W;g=V;Y=u(Y,X,W,V,C[P+0],S,3614090360);V=u(V,Y,X,W,C[P+1],Q,3905402710);W=u(W,V,Y,X,C[P+2],N,606105819);X=u(X,W,V,Y,C[P+3],M,3250441966);Y=u(Y,X,W,V,C[P+4],S,4118548399);V=u(V,Y,X,W,C[P+5],Q,1200080426);W=u(W,V,Y,X,C[P+6],N,2821735955);X=u(X,W,V,Y,C[P+7],M,4249261313);Y=u(Y,X,W,V,C[P+8],S,1770035416);V=u(V,Y,X,W,C[P+9],Q,2336552879);W=u(W,V,Y,X,C[P+10],N,4294925233);X=u(X,W,V,Y,C[P+11],M,2304563134);Y=u(Y,X,W,V,C[P+12],S,1804603682);V=u(V,Y,X,W,C[P+13],Q,4254626195);W=u(W,V,Y,X,C[P+14],N,2792965006);X=u(X,W,V,Y,C[P+15],M,1236535329);Y=f(Y,X,W,V,C[P+1],A,4129170786);V=f(V,Y,X,W,C[P+6],z,3225465664);W=f(W,V,Y,X,C[P+11],y,643717713);X=f(X,W,V,Y,C[P+0],w,3921069994);Y=f(Y,X,W,V,C[P+5],A,3593408605);V=f(V,Y,X,W,C[P+10],z,38016083);W=f(W,V,Y,X,C[P+15],y,3634488961);X=f(X,W,V,Y,C[P+4],w,3889429448);Y=f(Y,X,W,V,C[P+9],A,568446438);V=f(V,Y,X,W,C[P+14],z,3275163606);W=f(W,V,Y,X,C[P+3],y,4107603335);X=f(X,W,V,Y,C[P+8],w,1163531501);Y=f(Y,X,W,V,C[P+13],A,2850285829);V=f(V,Y,X,W,C[P+2],z,4243563512);W=f(W,V,Y,X,C[P+7],y,1735328473);X=f(X,W,V,Y,C[P+12],w,2368359562);Y=D(Y,X,W,V,C[P+5],o,4294588738);V=D(V,Y,X,W,C[P+8],m,2272392833);W=D(W,V,Y,X,C[P+11],l,1839030562);X=D(X,W,V,Y,C[P+14],j,4259657740);Y=D(Y,X,W,V,C[P+1],o,2763975236);V=D(V,Y,X,W,C[P+4],m,1272893353);W=D(W,V,Y,X,C[P+7],l,4139469664);X=D(X,W,V,Y,C[P+10],j,3200236656);Y=D(Y,X,W,V,C[P+13],o,681279174);V=D(V,Y,X,W,C[P+0],m,3936430074);W=D(W,V,Y,X,C[P+3],l,3572445317);X=D(X,W,V,Y,C[P+6],j,76029189);Y=D(Y,X,W,V,C[P+9],o,3654602809);V=D(V,Y,X,W,C[P+12],m,3873151461);W=D(W,V,Y,X,C[P+15],l,530742520);X=D(X,W,V,Y,C[P+2],j,3299628645);Y=t(Y,X,W,V,C[P+0],U,4096336452);V=t(V,Y,X,W,C[P+7],T,1126891415);W=t(W,V,Y,X,C[P+14],R,2878612391);X=t(X,W,V,Y,C[P+5],O,4237533241);Y=t(Y,X,W,V,C[P+12],U,1700485571);V=t(V,Y,X,W,C[P+3],T,2399980690);W=t(W,V,Y,X,C[P+10],R,4293915773);X=t(X,W,V,Y,C[P+1],O,2240044497);Y=t(Y,X,W,V,C[P+8],U,1873313359);V=t(V,Y,X,W,C[P+15],T,4264355552);W=t(W,V,Y,X,C[P+6],R,2734768916);X=t(X,W,V,Y,C[P+13],O,1309151649);Y=t(Y,X,W,V,C[P+4],U,4149444226);V=t(V,Y,X,W,C[P+11],T,3174756917);W=t(W,V,Y,X,C[P+2],R,718787259);X=t(X,W,V,Y,C[P+9],O,3951481745);Y=K(Y,h);X=K(X,E);W=K(W,v);V=K(V,g)}var i=B(Y)+B(X)+B(W)+B(V);return i.toLowerCase()};
+
+  function requireLib(moduleName, variableName) {
+    if( typeof module !== "undefined" && module.exports && typeof(require) === 'function' ) {
+      return require(moduleName);
+    }
+    else {
+      return exports[variableName||moduleName];
+    }
+  }
+
+  /*** PUBLIC METHODS AND FIXTURES ***/
+
+  MockFirebaseSimpleLogin.createError = function(code, message) {
+    return { code: code||'UNKNOWN_ERROR', message: message||code||'UNKNOWN_ERROR' };
+  }
+
+  MockFirebaseSimpleLogin.DEFAULT_FAIL_WHEN = function(provider, options, user) {
+    var res = null;
+    if( ['persona', 'anonymous', 'password', 'twitter', 'facebook', 'google', 'github'].indexOf(provider) === -1 ) {
+      console.error('MockFirebaseSimpleLogin:login() failed: unrecognized authentication provider '+provider);
+//      res = MockFirebaseSimpleLogin.createError();
+    }
+    else if( provider === 'password' ) {
+      if( user.email !== options.email ) {
+        res = MockFirebaseSimpleLogin.createError('INVALID_USER');
+      }
+      else if( user.password !== options.password ) {
+        res = MockFirebaseSimpleLogin.createError('INVALID_PASSWORD');
+      }
+    }
+    return res;
+  };
+
+  MockFirebaseSimpleLogin.DEFAULT_RESULT_DATA = {};
+  //todo make this accurate to the provider's data
+  _.each(['persona', 'anonymous', 'password', 'facebook', 'twitter', 'google', 'github'], function(provider) {
+    var user = createDefaultUser(provider);
+    if( provider !== 'password' ) {
+      MockFirebaseSimpleLogin.DEFAULT_RESULT_DATA[provider] = user;
+    }
+    else {
+      var set = MockFirebaseSimpleLogin.DEFAULT_RESULT_DATA[provider] = {};
+      set[user.email] = user;
+    }
+  });
+
+
+  MockFirebase.MD5 = MD5;
+  MockFirebaseSimpleLogin.DEFAULT_AUTO_FLUSH = false;
+
   MockFirebase._ = _; // expose for tests
 
-  MockFirebase.stub = function(obj, key) {
-    obj[key] = MockFirebase;
+  MockFirebase.noConflict = function() {
+    exports.Firebase = _Firebase;
+    exports.FirebaseSimpleLogin = _FirebaseSimpleLogin;
   };
 
   MockFirebase.ref = ref;
@@ -605,4 +926,11 @@
       }
     }
   };
-})(module && module.exports? module.exports : this);
+
+  // some hoop jumping for node require() vs browser usage
+  exports.MockFirebase = MockFirebase;
+  exports.MockFirebaseSimpleLogin = MockFirebaseSimpleLogin;
+  exports.Firebase = MockFirebase;
+  exports.FirebaseSimpleLogin = MockFirebaseSimpleLogin;
+
+})(typeof(module)==='object' && module.exports? module.exports : this);

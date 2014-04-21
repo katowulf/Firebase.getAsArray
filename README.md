@@ -39,8 +39,8 @@ Or in your node.js project:
     // add a new record
     var ref = list.$add({foo: 'bar'});
 
-    // remove a record
-    list.$remove( ref.name() );
+    // remove record
+    list.$remove( key );
 
     // set priority on a record
     list.$move( key, newPriority );
@@ -49,7 +49,15 @@ Or in your node.js project:
     list.$indexOf( key );
 
     // find key for a record at position 1
-    list.$keyFor( 1 );
+    list[1].$id;
+
+## Limitations
+
+All the records stored in the array are objects. Primitive values get stored as { '.value': primitive }
+
+Does not support IE 8 and below by default. To support these, simply include polyfills for
+[Array.prototype.forEach](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/forEach#Polyfill)
+ and [Function.prototype.bind](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/bind#Compatibility) in your code base.
 
 ## API
 
@@ -61,12 +69,9 @@ Or in your node.js project:
 
 Creates a new array and synchronizes it to the ref provided.
 
-### $keyFor(i)
+### $id
 
-    @param {int} i the index of an item in the array
-    @returns {String|null} key for that index or null if it is not in the array
-
-A convenience method to find the record id for a key in the array.
+The record ID. This is the unique URL key used to store the record in Firebase (the equivalent of firebaseRef.name()).
 
 ### $indexOf(key)
 
