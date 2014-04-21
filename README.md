@@ -4,12 +4,14 @@ A simple library to demonstrate how arrays can be synchronized to a real-time, d
 
 This library demonstrates the following best practices for using arrays with collaborative, real-time data:
 
- - keep synchronized arrays read only (don't use splice, pop, etc)
- - refer to records using a uniqueId rather than array index
+ - make the array read only (don't use splice, pop, etc; have setter methods)
+ - when possible, refer to records using a uniqueId rather than array index
  - synchronize changes from the server directly into our array
- - modify the data by directly pushing changes to the server and letting them trickle back to the array (essentially, make edits to the array in a one-directional manner)
+ - push local changes to the server and letting them trickle back
 
-**The array is read-only** for most use cases. To modify it, you use methods like `$add`, `$remove`, `$set`. Using splice(), push(), or pop() will modify the local content, but will not push any of your changes to Firebase.
+In other words, our array is essentialy one-directional. Changes come from the server into the array, we read them out, we push our local edits to the server, they trickle back into the array.
+
+Read more about synchronized arrays and this lib on the [Firebase Blog](https://www.firebase.com/blog/).
 
 ## Installation
 
