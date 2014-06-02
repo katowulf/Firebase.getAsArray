@@ -11,16 +11,17 @@
     "url": "https://github.com/firebase/angularFire/issues"
   },
   "devDependencies": {
+    "chai": "~1.9.1",
     "grunt": "~0.4.4",
-    "grunt-contrib-uglify": "~0.4.0",
-    "grunt-notify": "~0.2.20",
-    "grunt-contrib-watch": "~0.6.1",
+    "grunt-contrib-concat": "^0.4.0",
     "grunt-contrib-jshint": "~0.6.2",
+    "grunt-contrib-uglify": "~0.4.0",
+    "grunt-contrib-watch": "~0.6.1",
+    "grunt-mocha-test": "~0.10.2",
+    "grunt-notify": "~0.2.20",
     "load-grunt-tasks": "~0.4.0",
     "lodash": "~2.4.1",
     "sinon": "~1.9.1",
-    "grunt-mocha-test": "~0.10.2",
-    "chai": "~1.9.1",
     "sinon-chai": "~2.5.0"
   }
 }
