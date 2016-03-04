@@ -18,7 +18,7 @@ Read more about synchronized arrays and this lib on the [Firebase Blog](https://
 Download the [firebase-as-array.min.js](blob/master/firebase-as-array.min.js) file and include it in your HTML:
 
 ```html
-<script src="firebase-as-array.js"></script>
+<script src="firebase-as-array.min.js"></script>
 <script>
     var ref = new Firebase(URL);
     var list = Firebase.getAsArray(ref);
