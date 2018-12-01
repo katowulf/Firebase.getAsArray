@@ -1,5 +1,7 @@
 # Firebase.getAsArray
 
+**This uses an outdated version of the Firebase SDK and is no longer applicable.**
+
 A simple library to demonstrate how arrays can be synchronized to a real-time, distributed system like Firebase.
 
 This library demonstrates the following best practices for using arrays with collaborative, real-time data:
